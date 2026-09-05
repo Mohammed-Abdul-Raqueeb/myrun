@@ -1,0 +1,33 @@
+[package]
+name = "myrun"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "A minimal Linux container runtime built directly on kernel primitives"
+license = "MIT"
+readme = "README.md"
+
+# NOTE: intentionally ZERO third-party dependencies.
+# Every Linux mechanism (clone3, namespaces, cgroup v2, pivot_root, rtnetlink,
+# capabilities, seccomp-BPF) is driven through raw syscalls declared in
+# src/sys/ffi.rs. JSON, TOML and argument parsing are implemented in src/util
+# and src/cli.rs. This keeps the "from scratch" property of the project and
+# makes the build reproducible with nothing but rustc + cargo.
+[dependencies]
+
+[[bin]]
+name = "myrun"
+path = "src/main.rs"
+
+[lib]
+name = "myrun"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 2
+lto = true
+panic = "abort"
+strip = true
+
+[profile.dev]
+panic = "unwind"
