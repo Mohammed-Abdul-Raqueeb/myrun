@@ -1,0 +1,25 @@
+# A locked-down batch job: no network, unprivileged user, strict seccomp.
+#   sudo myrun run --config examples/batch.toml
+
+rootfs  = "/tmp/myrun-rootfs"
+command = ["/bin/sh", "-c", "echo processing; sleep 1; echo done"]
+
+read_only   = true
+auto_remove = true
+
+[[mounts]]
+source      = "/tmp"
+destination = "/input"
+type        = "bind"
+readonly    = true
+
+[resources]
+memory = "128m"
+pids   = 16
+
+[network]
+mode = "none"
+
+[security]
+seccomp = "strict"
+user    = "65534:65534"

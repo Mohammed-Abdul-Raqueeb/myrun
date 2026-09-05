@@ -1,0 +1,193 @@
+# Every option myrun understands, with its default shown where one exists.
+# This file is documentation as much as configuration; most containers need
+# only a handful of these.
+#
+#   sudo myrun run --config examples/full.toml
+#
+# Command line flags override anything set here.
+
+# ---------------------------------------------------------------------------
+# Container identity and payload
+# ---------------------------------------------------------------------------
+
+# Root filesystem. A directory, not an OCI image. Required.
+rootfs = "/tmp/myrun-rootfs"
+
+# argv for the workload. Required. Not shell-split: give it as a list.
+command = ["/bin/sh", "-c", "echo hello from myrun; sleep 2"]
+
+# Optional unique name; containers can be addressed by name, full id, or any
+# unambiguous id prefix. Default: none.
+name = "example"
+
+# UTS hostname. Default: the short container id.
+hostname = "example"
+
+# Working directory inside the container. Must be absolute. Default "/".
+cwd = "/"
+
+# Mount the root filesystem read-only. /tmp and any tmpfs volumes stay
+# writable. Default false.
+read_only = true
+
+# Delete the container's state as soon as it exits. Default false.
+auto_remove = false
+
+# Environment for the workload. PATH and TERM are set by default; HOSTNAME is
+# added automatically.
+env = [
+    "APP_ENV=production",
+    "LOG_LEVEL=info",
+]
+
+# Arbitrary metadata, visible in `myrun inspect`.
+[labels]
+team = "platform"
+tier = "example"
+
+# ---------------------------------------------------------------------------
+# Mounts
+# ---------------------------------------------------------------------------
+# type = "bind" (default) or "tmpfs". A read-only bind is remounted after the
+# initial bind, because MS_RDONLY is ignored in the first MS_BIND call.
+
+[[mounts]]
+source      = "/tmp"
+destination = "/input"
+type        = "bind"
+readonly    = true
+
+[[mounts]]
+source      = "tmpfs"
+destination = "/scratch"
+type        = "tmpfs"
+readonly    = false
+
+# ---------------------------------------------------------------------------
+# Resources (cgroup v2)
+# ---------------------------------------------------------------------------
+# Requires the memory/cpu/pids controllers to be delegated to cgroup v2. On a
+# v1 or hybrid host myrun refuses to run rather than silently ignoring these;
+# set MYRUN_ALLOW_MISSING_CONTROLLERS=1 to override.
+
+[resources]
+# memory.max. Accepts k/m/g suffixes, or "max" for unlimited. Minimum 512k.
+memory = "256m"
+
+# memory + swap combined. myrun writes the difference to memory.swap.max,
+# because cgroup v2 counts swap separately from v1's memsw.
+memory_swap = "512m"
+
+# Fractional CPUs -> cpu.max. 1.5 becomes "150000 100000".
+cpus = 1.5
+
+# cpu.weight, 1-10000. Relative share, not a cap. Default 100.
+cpu_weight = 100
+
+# pids.max. The limit that turns a fork bomb into a stuck container.
+pids = 64
+
+# ---------------------------------------------------------------------------
+# Networking
+# ---------------------------------------------------------------------------
+
+[network]
+# "none" (default) | "bridge" | "host"
+mode = "bridge"
+
+# Bridge to attach to; created on demand. Default "myrun0".
+bridge = "myrun0"
+
+# Address pool. Default "10.87.0.0/24".
+subnet = "10.87.0.0/24"
+
+# Request a specific address. Must be inside the subnet and not the gateway.
+# Omit to let the IPAM allocate the lowest free address.
+ip = "10.87.0.10"
+
+# Bridge address. Default: the first usable address of the subnet.
+gateway = "10.87.0.1"
+
+# MTU for both ends of the veth pair. Default 1500.
+mtu = 1500
+
+# Install the MASQUERADE rule so the container can reach the outside world.
+# Default true.
+nat = true
+
+# Written to /etc/resolv.conf inside the container.
+dns = ["1.1.1.1", "8.8.8.8"]
+
+# Published ports (bridge mode only). Each becomes a DNAT rule tagged with
+# the container id so teardown removes exactly its own rules.
+[[network.publish]]
+host      = 8080
+container = 80
+protocol  = "tcp"
+
+[[network.publish]]
+host      = 8053
+container = 53
+protocol  = "udp"
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+[security]
+# PR_SET_NO_NEW_PRIVS. Default true. Cannot be false together with seccomp:
+# the kernel would then require CAP_SYS_ADMIN to install the filter.
+no_new_privs = true
+
+# "unconfined" | "default" (39 denied syscalls) | "strict" (adds ptrace,
+# process_vm_readv/writev, syslog).
+seccomp = "default"
+
+# Capabilities. "all" in cap_drop clears the set before cap_add is applied.
+# The default set is Docker's, minus CAP_NET_RAW.
+cap_drop = ["all"]
+cap_add  = ["NET_BIND_SERVICE", "CHOWN"]
+
+# Run the workload as an unprivileged user. SETUID/SETGID are retained
+# automatically for the switch itself, then dropped by the kernel.
+user = "65534:65534"
+
+# Disables capabilities, seccomp and path masking together. For debugging the
+# runtime, not for running workloads. Default false.
+privileged = false
+
+# Covered with /dev/null (files) or an empty read-only tmpfs (directories).
+masked_paths = [
+    "/proc/kcore",
+    "/proc/keys",
+    "/proc/latency_stats",
+    "/proc/timer_list",
+    "/proc/timer_stats",
+    "/proc/sched_debug",
+    "/proc/scsi",
+    "/sys/firmware",
+    "/sys/devices/virtual/powercap",
+]
+
+# Remounted read-only inside the container.
+readonly_paths = [
+    "/proc/bus",
+    "/proc/fs",
+    "/proc/irq",
+    "/proc/sys",
+    "/proc/sysrq-trigger",
+]
+
+# ---------------------------------------------------------------------------
+# Namespaces
+# ---------------------------------------------------------------------------
+# All default to true. "net" is forced off by network mode "host".
+# User namespaces are deliberately not supported; see docs/security.md.
+
+[namespaces]
+pid    = true
+mount  = true
+uts    = true
+ipc    = true
+net    = true
+cgroup = true
