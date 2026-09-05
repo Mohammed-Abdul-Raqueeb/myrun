@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: Format, build and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup component add rustfmt clippy
+          rustup default stable
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Build (all targets)
+        run: cargo build --all-targets --verbose
+
+      - name: Clippy
+        # Warnings are errors: this codebase does raw FFI, and the lints that
+        # catch pointer and lifetime mistakes are the whole point.
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --lib --verbose
+
+      - name: CLI integration tests (unprivileged)
+        run: cargo test --test cli --verbose
+
+  privileged:
+    name: Privileged container tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y busybox-static iproute2 iptables
+
+      - name: Report host capabilities
+        run: |
+          uname -a
+          echo "--- cgroup mounts ---"
+          grep cgroup /proc/self/mountinfo || true
+          echo "--- delegated controllers ---"
+          cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null || echo "no unified cgroup2 root"
+
+      - name: Build
+        run: cargo build --all-targets
+
+      - name: Build the test rootfs
+        run: sudo ./scripts/setup-rootfs.sh /tmp/myrun-rootfs
+
+      - name: Runtime info
+        run: sudo ./target/debug/myrun info
+
+      - name: Lifecycle tests
+        run: |
+          sudo -E env "PATH=$PATH" \
+            MYRUN_PRIVILEGED_TESTS=1 \
+            MYRUN_TEST_ROOTFS=/tmp/myrun-rootfs \
+            cargo test --test lifecycle -- --test-threads=1 --nocapture
+
+      - name: Isolation, security, network and fault tests
+        run: |
+          sudo -E env "PATH=$PATH" \
+            MYRUN_PRIVILEGED_TESTS=1 \
+            MYRUN_TEST_ROOTFS=/tmp/myrun-rootfs \
+            cargo test --test isolation -- --test-threads=1 --nocapture
+
+      - name: Leak check
+        # The suites must leave the host exactly as they found it.
+        run: sudo ./scripts/check-leaks.sh
+
+      - name: Benchmarks
+        run: |
+          cargo build --release
+          sudo ./scripts/bench.sh 10 /tmp/myrun-rootfs
